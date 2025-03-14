@@ -1,5 +1,9 @@
+.vscode/*
 class_notes/*
 labs/*
 homeworks/homework1/*
+homeworks/*/logs/*
+homeworks/*/models/*
+final_project/papers/*
 intro/*
 data/*
