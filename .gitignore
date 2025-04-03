@@ -5,6 +5,7 @@ homeworks/homework1/*
 homeworks/*/logs/*
 homeworks/*/models/*
 final_project/papers/*
+final_project/data/
 intro/*
 data/*
-final_project/data/
+
