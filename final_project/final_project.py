@@ -3,6 +3,8 @@ import numpy as np
 from torch import nn, optim
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.interpolate import make_interp_spline, BSpline
 
 # Number of data points in our set
 
@@ -10,7 +12,7 @@ device = "cpu"
 if torch.cuda.is_available():
     device = "cuda"
 
-points = 52069
+points = 52077
 train_size = int(0.8 * points)
 
 
@@ -20,9 +22,10 @@ class TempAnomalyDataset(Dataset):
         self.data = self.data.to_numpy()
         self.data_in = []
         self.data_out = []
-        for i in range(len(self.data) - lookback):
-            feature = self.data[i:i+lookback, 4]
-            target = self.data[i+1:i+lookback+1, 4]
+        self.lookback = lookback
+        for i in range(len(self.data) - self.lookback):
+            feature = self.data[i:i+self.lookback, 4]
+            target = self.data[i+1:i+self.lookback+1, 4]
             self.data_in.append(feature)
             self.data_out.append(target)
         self.data_in = np.array(self.data_in)
@@ -33,17 +36,24 @@ class TempAnomalyDataset(Dataset):
     def __len__(self):
         return points
 
+    # Kinda hacky solution but it works for now
     def __getitem__(self, idx):
-        if idx >= points:
-            idx = points - 1
+        if idx >= points - self.lookback:
+            idx = points - self.lookback - 1
         if torch.is_tensor(idx):
             idx = idx.tolist()
         return self.data_in[idx], self.data_out[idx]
 
 
-anomaly_dataset = TempAnomalyDataset("data/berkeley/data.json", lookback=8)
+anomaly_dataset = TempAnomalyDataset("data/berkeley/data.json", lookback=100)
 train_data, valid_data = torch.utils.data.random_split(
     anomaly_dataset, [train_size, points - train_size])
+
+# Plotting our dataset and subsequently plotting our predictions
+df = pd.read_json("data/berkeley/data.json")
+time_series = df[["anomaly"]].values.astype("float32")
+train_plot = np.ones_like(time_series) * np.nan
+plt.plot(time_series, c='b')
 
 
 # Hack to be able to put LSTMCells together
@@ -63,6 +73,7 @@ class TempAnomalyNetwork(nn.Module):
             i *= 2
             L.append(nn.LSTMCell((i // 2) * lookback, i * lookback, dtype=float))
             L.append(sanitize())
+        self.lookback = lookback
         self.network = nn.Sequential(*L)
         self.classifier = nn.Linear(i * lookback, lookback, dtype=float)
 
@@ -72,7 +83,7 @@ class TempAnomalyNetwork(nn.Module):
         return x
 
 
-def train(lr=1e-3, reg=1e-3, epochs=10, batch_size=8, lookback=8, weight_decay=0):
+def train(lr=1e-3, epochs=10, batch_size=8, lookback=8, weight_decay=0):
     train_loader = torch.utils.data.DataLoader(
         train_data, batch_size=batch_size)
     valid_loader = torch.utils.data.DataLoader(
@@ -108,4 +119,14 @@ def train(lr=1e-3, reg=1e-3, epochs=10, batch_size=8, lookback=8, weight_decay=0
     return model
 
 
-model = train()
+model = train(lookback=100)
+torch.save(model, "models/anomaly.pt")
+# model = torch.load("models/anomaly.pt")
+# model.eval()
+# train_data_tensor = torch.stack([t[0] for t in train_data])
+# print(train_data_tensor)
+# preds = model(train_data_tensor)[0:41653, 1].detach().numpy()
+# preds = np.expand_dims(preds, axis=1)
+# train_plot[model.lookback:train_size] = preds
+# plt.plot(train_plot, c='r')
+# plt.show()
