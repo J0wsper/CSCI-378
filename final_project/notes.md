@@ -46,3 +46,18 @@ temperatures might look like based on trends we see in the existing data.
   necessary to do something like that.
 - Maybe I could do wildfire data instead and use that to predict where future
   wildfires are going to occur.
+
+## Misc
+
+- This is a **sequence modelling** problem.
+- This is basically asking for `P(x_n | x_1, ..., x_{n-1})`.
+- We are attempting to predict our anomalies based on the year and month and
+  day.
+- A common architecture is called an LSTM or a *recurrent network*.
+  - LSTMs are versions of a *recurrent network*.
+  - There is also a temporal convolution.
+    - This is in 1D instead of 2D.
+- There are also other sequence modelling notes for the future of the class if I
+  want to look at that.
+- There is a good approach here
+  https://machinelearningmastery.com/lstm-for-time-series-prediction-in-pytorch/
