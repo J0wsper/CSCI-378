@@ -3,8 +3,7 @@ import numpy as np
 from torch import nn, optim
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
-
-# Number of data points in our set
+import matplotlib.pyplot as plt
 
 
 device = "cpu"
@@ -13,6 +12,7 @@ if torch.cuda.is_available():
 
 points = 52077
 train_size = int(0.8 * points)
+seq_len = 512
 
 
 class TempAnomalyDataset(Dataset):
@@ -31,15 +31,20 @@ class TempAnomalyDataset(Dataset):
             idx = len(self.data) - 1
         elif idx < self.seq_len:
             idx = self.seq_len
-        return self.data[idx - self.seq_len: idx], self.data[
-            idx - self.seq_len + 1: idx + 1
+        return self.data[idx - self.seq_len : idx], self.data[
+            idx - self.seq_len + 1 : idx + 1
         ]
 
 
-anomaly_dataset = TempAnomalyDataset("data/berkeley/data.json", 256)
+anomaly_dataset = TempAnomalyDataset("data/berkeley/data.json", seq_len=seq_len)
 train_data, valid_data = torch.utils.data.random_split(
     anomaly_dataset, [train_size, len(anomaly_dataset) - train_size]
 )
+
+df = pd.read_json("data/berkeley/data.json")
+time_series = df[["anomaly"]].values.astype("float32")
+train_plot = np.ones_like(time_series) * np.nan
+plt.plot(time_series, c="b")
 
 
 class TempAnomalyNetwork(nn.Module):
@@ -58,8 +63,15 @@ class TempAnomalyNetwork(nn.Module):
         self.classifier = nn.Linear(layers[len(layers) - 1], 1, dtype=float)
 
     def forward(self, x):
+        # Adding our features so convolutions don't get mad
         x = torch.unsqueeze(x, 1)
-        x = self.classifier(self.network(x))
+        # Feeding our data into our network
+        x = self.network(x)
+        # Moving the features to the back so we can take the linear properly
+        x = torch.transpose(x, 1, 2)
+        # Classifying our features
+        x = self.classifier(x)
+        # Removing size 1 dimension where our features were
         x = torch.squeeze(x, 2)
         return x
 
@@ -68,7 +80,7 @@ def train(lr=1e-3, reg=1e-3, epochs=10, batch_size=8, weight_decay=0):
     train_loader = DataLoader(train_data, batch_size=batch_size)
     valid_loader = DataLoader(valid_data, batch_size=batch_size)
 
-    model = TempAnomalyNetwork().to(device)
+    model = TempAnomalyNetwork(layers=[32, 64]).to(device)
     opt = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -96,4 +108,17 @@ def train(lr=1e-3, reg=1e-3, epochs=10, batch_size=8, weight_decay=0):
     return model
 
 
-model = train()
+model = torch.load("models/big_anomaly.pt", map_location=torch.device("cpu"))
+model.eval()
+full_loader = DataLoader(anomaly_dataset, batch_size=8, shuffle=False)
+# TODO: This is really slow. Is there some way to fix this?
+preds = []
+for batch, _ in full_loader:
+    batch_pred = model(batch)
+    for pred in batch_pred:
+        preds.append(pred[seq_len - 1])
+preds = np.array(preds)
+preds = np.expand_dims(preds, axis=1)
+train_plot[0:train_size] = preds
+plt.plot(train_plot, c="r")
+plt.show()
