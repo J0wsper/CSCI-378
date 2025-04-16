@@ -6,12 +6,14 @@ import pandas as pd
 
 # Number of data points in our set
 
+
 device = "cpu"
 if torch.cuda.is_available():
     device = "cuda"
 
-points = 52069
+points = 52077
 train_size = int(0.8 * points)
+lookback = 2000
 
 
 class TempAnomalyDataset(Dataset):
@@ -20,9 +22,10 @@ class TempAnomalyDataset(Dataset):
         self.data = self.data.to_numpy()
         self.data_in = []
         self.data_out = []
-        for i in range(len(self.data) - lookback):
-            feature = self.data[i:i+lookback, 4]
-            target = self.data[i+1:i+lookback+1, 4]
+        self.lookback = lookback
+        for i in range(len(self.data) - self.lookback):
+            feature = self.data[i: i + self.lookback, 4]
+            target = self.data[i + 1, 4]
             self.data_in.append(feature)
             self.data_out.append(target)
         self.data_in = np.array(self.data_in)
@@ -33,54 +36,73 @@ class TempAnomalyDataset(Dataset):
     def __len__(self):
         return points
 
+    # Kinda hacky solution but it works for now
     def __getitem__(self, idx):
-        if idx >= points:
-            idx = points - 1
+        if idx >= points - self.lookback:
+            idx = points - self.lookback - 1
         if torch.is_tensor(idx):
             idx = idx.tolist()
         return self.data_in[idx], self.data_out[idx]
 
 
-anomaly_dataset = TempAnomalyDataset("data/berkeley/data.json", lookback=8)
+anomaly_dataset = TempAnomalyDataset(
+    "data/berkeley/data.json", lookback=lookback)
 train_data, valid_data = torch.utils.data.random_split(
-    anomaly_dataset, [train_size, points - train_size])
+    anomaly_dataset, [train_size, points - train_size]
+)
 
 
-# Hack to be able to put LSTMCells together
-class sanitize(nn.Module):
-    def forward(self, x):
-        tensor, _ = x
-        return tensor
-
-
+# We want this network to output log probabilities over possible continuations
+# of the sequence if we are going to implement beam search
 class TempAnomalyNetwork(nn.Module):
-
-    def __init__(self, layers=5, lookback=8):
+    def __init__(self):
         super().__init__()
-        L = []
-        i = 1
-        for _ in range(layers):
-            i *= 2
-            L.append(nn.LSTMCell((i // 2) * lookback, i * lookback, dtype=float))
-            L.append(sanitize())
-        self.network = nn.Sequential(*L)
-        self.classifier = nn.Linear(i * lookback, lookback, dtype=float)
+        self.network = nn.Sequential(
+            # Has output size (32, 400)
+            nn.Conv1d(
+                in_channels=8,
+                out_channels=32,
+                kernel_size=100,
+                stride=5,
+                padding=49,
+                dtype=float,
+            ),
+            nn.ReLU(),
+            # Has output size (64, 200)
+            nn.Conv1d(
+                in_channels=32,
+                out_channels=64,
+                kernel_size=20,
+                stride=2,
+                padding=9,
+                dtype=float,
+            ),
+            nn.ReLU(),
+            nn.Conv1d(
+                in_channels=64,
+                out_channels=128,
+                kernel_size=20,
+                stride=2,
+                padding=9,
+                dtype=float,
+            ),
+        )
 
     def forward(self, x):
         x = self.network(x)
-        x = self.classifier(x)
+        print(x.shape)
         return x
 
 
-def train(lr=1e-3, reg=1e-3, epochs=10, batch_size=8, lookback=8, weight_decay=0):
-    train_loader = torch.utils.data.DataLoader(
-        train_data, batch_size=batch_size)
-    valid_loader = torch.utils.data.DataLoader(
-        valid_data, batch_size=batch_size)
+def beam_search(model, input, k):
 
-    model = TempAnomalyNetwork(layers=2, lookback=lookback).to(device)
-    opt = optim.Adam(model.parameters(), lr=lr,
-                     weight_decay=weight_decay)
+
+def train(lr=1e-3, reg=1e-3, epochs=10, batch_size=8, lookback=8, weight_decay=0):
+    train_loader = DataLoader(train_data, batch_size=batch_size)
+    valid_loader = DataLoader(valid_data, batch_size=batch_size)
+
+    model = TempAnomalyNetwork().to(device)
+    opt = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
     for i in range(epochs):
@@ -88,6 +110,7 @@ def train(lr=1e-3, reg=1e-3, epochs=10, batch_size=8, lookback=8, weight_decay=0
         for batch_xs, batch_ys in train_loader:
             batch_xs = batch_xs.to(device)
             batch_ys = batch_ys.to(device)
+            print(batch_xs.shape)
             # Batch_xs has shape (batch_size, lookback)
             pred = model(batch_xs)
             loss = loss_fn(pred, batch_ys)
@@ -108,4 +131,4 @@ def train(lr=1e-3, reg=1e-3, epochs=10, batch_size=8, lookback=8, weight_decay=0
     return model
 
 
-model = train()
+model = train(lookback=lookback)
