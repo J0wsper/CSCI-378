@@ -76,11 +76,11 @@ class TempAnomalyNetwork(nn.Module):
         return x
 
 
-def train(lr=1e-3, reg=1e-3, epochs=10, batch_size=8, weight_decay=0):
+def train(lr=1e-3, epochs=10, batch_size=8, weight_decay=0):
     train_loader = DataLoader(train_data, batch_size=batch_size)
     valid_loader = DataLoader(valid_data, batch_size=batch_size)
 
-    model = TempAnomalyNetwork(layers=[32, 64]).to(device)
+    model = TempAnomalyNetwork(layers=[32, 64, 128, 256, 512]).to(device)
     opt = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -108,20 +108,20 @@ def train(lr=1e-3, reg=1e-3, epochs=10, batch_size=8, weight_decay=0):
     return model
 
 
-model = torch.load(
-    "models/big_anomaly.pt", map_location=torch.device("cpu"), weights_only=False
-)
-model.eval()
-full_loader = DataLoader(anomaly_dataset, batch_size=8, shuffle=False)
-preds = []
-for batch, _ in full_loader:
-    batch_pred = model(batch)
-    for pred in batch_pred:
-        preds.append(pred[seq_len - 1].item())
-preds = np.array(preds)
-np.savez("big_anomaly_preds.npz", preds=preds)
-# preds = np.load("big_anomaly_preds.npz")["preds"]
+# model = torch.load(
+#     "models/big_anomaly.pt", map_location=torch.device("cpu"), weights_only=False
+# )
+# model.eval()
+# full_loader = DataLoader(anomaly_dataset, batch_size=8, shuffle=False)
+# preds = []
+# for batch, _ in full_loader:
+#     batch_pred = model(batch)
+#     for pred in batch_pred:
+#         preds.append(pred[seq_len - 1].item())
+# preds = np.array(preds)
+# np.savez("big_anomaly_preds.npz", preds=preds)
+preds = np.load("preds/big_anomaly_preds.npz")["preds"]
 preds = np.expand_dims(preds, axis=1)
-train_plot[512 : points - 1] = preds
+train_plot[seq_len : points - 1] = preds
 plt.plot(train_plot, c="r")
 plt.show()
