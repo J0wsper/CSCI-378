@@ -13,7 +13,8 @@ if torch.cuda.is_available():
 
 points = 52077
 train_size = int(0.8 * points)
-seq_len = 512
+seq_len = 2048
+logdir = "logs"
 
 
 class TempAnomalyDataset(Dataset):
@@ -37,7 +38,7 @@ class TempAnomalyDataset(Dataset):
         ]
 
 
-anomaly_dataset = TempAnomalyDataset("data/berkeley/data.json", seq_len=seq_len)
+anomaly_dataset = TempAnomalyDataset("~/scratch/data.json", seq_len=seq_len)
 train_data, valid_data = torch.utils.data.random_split(
     anomaly_dataset, [train_size, len(anomaly_dataset) - train_size]
 )
@@ -77,53 +78,61 @@ class TempAnomalyNetwork(nn.Module):
         return x
 
 
-def train(lr=1e-3, epochs=10, batch_size=8, weight_decay=0):
+def train(lr=1e-3, epochs=10, batch_size=8, weight_decay=0.0):
     train_loader = DataLoader(train_data, batch_size=batch_size)
     valid_loader = DataLoader(valid_data, batch_size=batch_size)
+    logger = tb.SummaryWriter(
+        logdir
+        + "/"
+        + "lr-"
+        + str(lr)
+        + "-wght-"
+        + str(weight_decay)
+        + "-arch-"
+        + str(512)
+    )
 
-    # TODO: This deep of a network results in rather catastrophic overfitting
-    model = TempAnomalyNetwork(layers=[32, 64, 128, 256, 512]).to(device)
+    model = TempAnomalyNetwork(layers=[32, 64, 128, 256]).to(device)
     opt = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
-    for i in range(epochs):
+    global_step = 0
+
+    for _ in range(epochs):
         model.train()
         for batch_xs, batch_ys in train_loader:
             batch_xs = batch_xs.to(device)
             batch_ys = batch_ys.to(device)
             pred = model(batch_xs)
             loss = loss_fn(pred, batch_ys)
+            logger.add_scalar("train_loss", loss, global_step=global_step)
             opt.zero_grad()
             loss.backward()
             opt.step()
+            global_step += 1
         model.eval()
-        losses = []
+        val_step = global_step
         for batch_xs, batch_ys in valid_loader:
             batch_xs = batch_xs.to(device)
             batch_ys = batch_ys.to(device)
             pred = model(batch_xs)
             loss = loss_fn(pred, batch_ys)
-            losses.append(loss.item())
-        losses = np.array(losses, dtype=float)
-        print("Epoch: ", i, "Average validation loss: ", np.mean(losses))
+            logger.add_scalar("validation loss", loss, global_step=val_step)
+            val_step += 1
 
     return model
 
 
-# model = torch.load(
-#     "models/big_anomaly.pt", map_location=torch.device("cpu"), weights_only=False
-# )
-# model.eval()
-# full_loader = DataLoader(anomaly_dataset, batch_size=8, shuffle=False)
-# preds = []
-# for batch, _ in full_loader:
-#     batch_pred = model(batch)
-#     for pred in batch_pred:
-#         preds.append(pred[seq_len - 1].item())
-# preds = np.array(preds)
-# np.savez("big_anomaly_preds.npz", preds=preds)
-preds = np.load("preds/big_anomaly_preds.npz")["preds"]
-preds = np.expand_dims(preds, axis=1)
-train_plot[seq_len : points - 1] = preds
-plt.plot(train_plot, c="r")
-plt.show()
+model = train()
+torch.save(model, "bigger_anomaly.pt")
+# model = torch.load("bigger_anomaly.pt")
+model.eval()
+full_loader = DataLoader(anomaly_dataset, batch_size=8, shuffle=False)
+preds = []
+for batch, _ in full_loader:
+    batch = batch.to(device)
+    batch_pred = model(batch)
+    for pred in batch_pred:
+        preds.append(pred[-1].item())
+preds = np.array(preds)
+np.savez("bigger_anomaly_preds.npz", preds=preds)
