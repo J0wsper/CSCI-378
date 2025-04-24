@@ -61,6 +61,7 @@ class TempAnomalyNetwork(nn.Module):
             total_dilation *= 2
             c = l
         self.network = nn.Sequential(*L)
+        # TODO: Change this to a 1D convolution so it can predict each value up to that point.
         self.classifier = nn.Linear(layers[len(layers) - 1], 1, dtype=float)
 
     def forward(self, x):
