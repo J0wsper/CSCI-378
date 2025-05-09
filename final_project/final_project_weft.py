@@ -13,8 +13,10 @@ if torch.cuda.is_available():
 
 points = 52077
 train_size = int(0.8 * points)
-seq_len = 512
+seq_len = 128
 logdir = "logs"
+modeldir = "models"
+predsdir = "preds"
 
 
 class TempAnomalyDataset(Dataset):
@@ -64,7 +66,7 @@ class TempAnomalyNetwork(nn.Module):
         self.network = nn.Sequential(*L)
         self.classifier = nn.Conv1d(c, 1, 1, dtype=float)
 
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
         # Adding our features so convolutions don't get mad
         x = torch.unsqueeze(x, 1)
         # Feeding our data into our network
@@ -75,9 +77,11 @@ class TempAnomalyNetwork(nn.Module):
         return torch.squeeze(x, 1)
 
 
-def train(lr=1e-3, epochs=10, batch_size=8, weight_decay=0.0, layers=[16, 32, 64]):
-    train_loader = DataLoader(train_data, batch_size=batch_size)
-    valid_loader = DataLoader(valid_data, batch_size=batch_size)
+def train(
+    lr: float, epochs: int, weight_decay: float, layers: list[int], batch_size: int
+) -> TempAnomalyNetwork:
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=True)
     logger = tb.SummaryWriter(
         logdir
         + "/"
@@ -89,6 +93,8 @@ def train(lr=1e-3, epochs=10, batch_size=8, weight_decay=0.0, layers=[16, 32, 64
         + str(layers[-1])
         + "-ep-"
         + str(epochs)
+        + "-seqlen-"
+        + str(seq_len)
     )
 
     model = TempAnomalyNetwork(layers=layers).to(device)
@@ -96,6 +102,7 @@ def train(lr=1e-3, epochs=10, batch_size=8, weight_decay=0.0, layers=[16, 32, 64
     loss_fn = nn.MSELoss()
 
     global_step = 0
+    val_step = 0
 
     for i in range(epochs):
         model.train()
@@ -110,7 +117,6 @@ def train(lr=1e-3, epochs=10, batch_size=8, weight_decay=0.0, layers=[16, 32, 64
             opt.step()
             global_step += 1
         model.eval()
-        val_step = global_step
         losses = []
         for batch_xs, batch_ys in valid_loader:
             batch_xs = batch_xs.to(device)
@@ -125,9 +131,35 @@ def train(lr=1e-3, epochs=10, batch_size=8, weight_decay=0.0, layers=[16, 32, 64
     return model
 
 
-model = train(epochs=3, weight_decay=5e-3)
-torch.save(model, "bigger_anomaly.pt")
-# model = torch.load("bigger_anomaly.pt")
+weight_decay = 5e-5
+lr = 5e-5
+layers = [4, 8, 16]
+epochs = 8
+batch_size = 8
+
+
+model = train(
+    epochs=epochs,
+    weight_decay=weight_decay,
+    lr=lr,
+    layers=layers,
+    batch_size=batch_size,
+)
+torch.save(
+    model,
+    modeldir
+    + "/"
+    + "lr-"
+    + str(lr)
+    + "-wght-"
+    + str(weight_decay)
+    + "-arch-"
+    + str(layers[-1])
+    + "-ep-"
+    + str(epochs)
+    + "-seqlen-"
+    + str(seq_len),
+)
 model.eval()
 full_loader = DataLoader(anomaly_dataset, batch_size=8, shuffle=False)
 preds = []

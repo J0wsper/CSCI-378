@@ -8,6 +8,7 @@ final_project/papers/*
 final_project/data/
 final_project/models/
 final_project/preds/
+final_project/logs/
 textbooks/
 intro/*
 data/*
