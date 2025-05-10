@@ -9,10 +9,10 @@ plt.plot(time_series, c="b")
 preddir = "preds/"
 
 lr = 5e-4
-weight = 5e-5
+weight = 0.0
 arch = 128
 epochs = 15
-seqlen = 2048
+seqlen = 512
 pred = True
 
 preds = np.load(
@@ -30,7 +30,9 @@ preds = np.load(
     + "-pred-"
     + str(pred)
     + ".npz"
-)["arr_0"]
+)
+padding = np.ones((seqlen,)) * np.nan
+preds = np.concat((padding, preds))
 plt.plot(preds, c="r")
 
 future_preds = np.load(
@@ -49,6 +51,7 @@ future_preds = np.load(
     + "-pred-"
     + str(pred)
     + ".npz"
-)["arr_0"]
+)
+future_preds = future_preds["arr_0"]
 plt.plot(future_preds, c="y")
 plt.show()

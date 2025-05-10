@@ -11,14 +11,13 @@ device = "cpu"
 if torch.cuda.is_available():
     device = "cuda"
 
-# TODO: Try increasing the sequence length and see what happens
 points = 52077
 train_size = int(0.8 * points)
-seq_len = 512
+seq_len = 2048
 logdir = "logs"
 modeldir = "models"
 predsdir = "preds"
-predictive = False
+predictive = True
 
 
 class TempAnomalyDataset(Dataset):
@@ -145,13 +144,31 @@ def train(
     return model
 
 
-# TODO: Try a bigger model?
-weight_decay = 5e-4
-lr = 5e-3
+weight_decay = 5e-5
+lr = 5e-4
 layers = [8, 16, 32, 64]
-epochs = 3
+arch = 128
+epochs = 15
 batch_size = 8
 
+
+# model = torch.load(
+#     modeldir
+#     + "/"
+#     + "lr-"
+#     + str(lr)
+#     + "-wght-"
+#     + str(weight_decay)
+#     + "-arch-"
+#     + str(arch)
+#     + "-ep-"
+#     + str(epochs)
+#     + "-seqlen-"
+#     + str(seq_len)
+#     + "-pred-"
+#     + str(predictive),
+#     map_location=torch.device("cpu"),
+# )
 
 model = train(
     epochs=epochs,
@@ -191,28 +208,20 @@ if predictive:
         batch_preds = model(part).squeeze()
         batch_preds = batch_preds.detach().numpy()
         preds = np.concat((preds, batch_preds))
-    plt.plot(preds, c="r")
-
-    # Feeding the model back its own predictions
-    model.eval()
-    data = partitioned_dataset[-1].unsqueeze(dim=1)
-    future_preds = np.ones_like(preds) * np.nan
-    i = 0
-    while i < 20:
-        batch_pred = model(data)
-        data = batch_pred
-        batch_pred = batch_pred.detach().numpy().squeeze()
-        future_preds = np.concat((future_preds, batch_pred))
-        i += 1
-    # plt.plot(future_preds, c="y")
+    data = anomaly_dataset.data[51000:52000].unsqueeze(dim=1)
+    print(data)
+    future_preds = np.ones_like(anomaly_dataset.data.detach().numpy()) * np.nan
+    future_preds = np.concat((future_preds, model(data).detach().numpy().squeeze()))
     np.savez(
-        "future_preds"
+        predsdir
+        + "/"
+        + "future_preds"
         + "-lr-"
         + str(lr)
         + "-wght-"
         + str(weight_decay)
         + "-arch-"
-        + str(layers[-1])
+        + str(arch)
         + "-ep-"
         + str(epochs)
         + "-seqlen-"
@@ -221,10 +230,8 @@ if predictive:
         + str(predictive),
         future_preds,
     )
-    # plt.show()
 
 # All of the below is modelling the non-predictive case
-# TODO: This always seems to "worm" where the predictions just tend to a value near 1
 else:
     full_loader = DataLoader(anomaly_dataset, batch_size=8, shuffle=False)
     preds = []
@@ -235,7 +242,6 @@ else:
             preds.append(pred[-1].item())
     preds = np.array(preds)
     preds = np.expand_dims(preds, axis=1)
-    plt.plot(preds, c="r")
 
     model.eval()
     data = torch.split(anomaly_dataset.data, seq_len)[-1].unsqueeze(dim=1)
@@ -247,8 +253,6 @@ else:
         batch_pred = batch_pred.detach().numpy()
         future_preds = np.append(future_preds, batch_pred[-1])
         i += 1
-    np.savez("future_preds.npz", future_preds)
-    # plt.plot(future_preds, c="y")
     np.savez(
         "future_preds"
         + "-lr-"
@@ -265,4 +269,3 @@ else:
         + str(predictive),
         future_preds,
     )
-    # plt.show()

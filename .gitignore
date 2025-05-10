@@ -10,6 +10,7 @@ final_project/models/
 final_project/preds/
 final_project/logs/
 final_project/graphs/
+final_project/*.zip
 textbooks/
 intro/*
 data/*
